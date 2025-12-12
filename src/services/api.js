@@ -40,10 +40,11 @@ export const ocrAPI = {
     formData.append('file', file);
     formData.append('apikey', OCR_API_KEY);
     formData.append('language', 'eng');
-    formData.append('isOverlayRequired', 'false');
-    formData.append('detectOrientation', 'true');
-    formData.append('scale', 'true');
-    formData.append('OCREngine', '2'); // More accurate engine
+    formData.append('isOverlayRequired', 'true');      // Get word positions for better parsing
+    formData.append('detectOrientation', 'true');      // Auto-rotate if needed
+    formData.append('scale', 'true');                  // Scale image for better OCR
+    formData.append('isTable', 'true');                // Enable table recognition
+    formData.append('OCREngine', '2');                 // Engine 2 is better for handwriting
 
     const response = await axios.post(OCR_API_URL, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
