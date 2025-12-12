@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Google Cloud Vision API Key
-const GOOGLE_VISION_API_KEY = 'AIzaSyCmhuyJvx2yQZUvS9c7qAnFn_L6tr1vJWY';
+// Google Cloud Vision API Key (from environment variable)
+const GOOGLE_VISION_API_KEY = process.env.REACT_APP_GOOGLE_VISION_API_KEY || '';
 const GOOGLE_VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
 
 // Local Storage Keys
