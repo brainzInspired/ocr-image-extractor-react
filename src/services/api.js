@@ -106,8 +106,8 @@ export const ocrAPI = {
         const dateMatch = line.match(/(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/);
         if (dateMatch) result.header.date = dateMatch[1];
       }
-      if (lowerLine.includes('company') || lowerLine.includes('hotel')) {
-        result.header.company = line.split(':').pop()?.trim() || line;
+      if (lowerLine.includes('company') || lowerLine.includes('hotel') || lowerLine.includes('amritara') || lowerLine.includes('aura')) {
+        result.header.company = line.trim();
       }
       if (lowerLine.includes('contractor') || lowerLine.includes('vendor')) {
         result.header.contractor_name = line.split(':').pop()?.trim() || '';
@@ -116,6 +116,10 @@ export const ocrAPI = {
         const phoneMatch = line.match(/(\d{10,})/);
         if (phoneMatch) result.header.contact_no = phoneMatch[1];
       }
+      if (lowerLine.includes('sr. no') || lowerLine.includes('sr.no') || lowerLine.includes('sr no')) {
+        const srMatch = line.match(/(\d+)/);
+        if (srMatch) result.header.sr_no = srMatch[1];
+      }
     });
 
     // Common linen items to look for
@@ -123,43 +127,77 @@ export const ocrAPI = {
       'bed sheet', 'bedsheet', 'pillow', 'towel', 'bath towel', 'hand towel',
       'face towel', 'blanket', 'duvet', 'mattress', 'curtain', 'napkin',
       'table cloth', 'bath mat', 'bed cover', 'quilt', 'comforter',
-      'pillow cover', 'cushion', 'runner', 'apron', 'chef coat', 'uniform'
+      'pillow cover', 'cushion', 'runner', 'apron', 'chef coat', 'uniform',
+      'dry mop', 'pool towel', 'bath robe', 'spa towel', 'floor mat',
+      'bed runner', 'duvet cover', 't-shirt', 'shirt', 'pant', 'coat', 'sweater',
+      'dbl', 'sgl', 'cousin cover', 'frill', 'chain cover', 's. pool'
     ];
+
+    // Uniform keywords
+    const uniformKeywords = ['uniform', 'chef coat', 'apron', 't-shirt', 'shirt', 'pant', 'coat', 'sweater'];
 
     // Try to parse table data
     let srNo = 1;
+    let inUniformSection = false;
+
     lines.forEach(line => {
       const lowerLine = line.toLowerCase();
 
-      // Check if line contains any linen item
+      // Check if we're entering uniform section
+      if (lowerLine.includes('uniform') && !lowerLine.includes('opening') && line.length < 20) {
+        inUniformSection = true;
+        return;
+      }
+
+      // Check if line contains any linen/uniform item
       const hasLinenItem = linenKeywords.some(keyword => lowerLine.includes(keyword));
 
-      if (hasLinenItem) {
-        // Try to extract numbers from the line
-        const numbers = line.match(/\d+/g) || [];
+      // Also check if line starts with a number followed by text (table row pattern)
+      const isTableRow = /^\s*\d{1,2}[\.\s]/.test(line) && /[a-zA-Z]{3,}/.test(line);
 
-        // Extract item name (text part)
-        let itemName = line;
-        linenKeywords.forEach(keyword => {
-          if (lowerLine.includes(keyword)) {
-            const idx = lowerLine.indexOf(keyword);
-            itemName = line.substring(idx, idx + keyword.length + 20).split(/\d/)[0].trim();
-          }
-        });
+      if (hasLinenItem || isTableRow) {
+        // Remove leading serial number (e.g., "1.", "2.", "1 ", "2 ")
+        let cleanedLine = line.replace(/^\s*\d{1,2}[\.\s]+/, '');
+
+        // Extract all numbers from the cleaned line (after removing sr no)
+        const numbers = cleanedLine.match(/\d+/g) || [];
+
+        // Extract item name - get text before the first number
+        let itemName = cleanedLine.split(/\d/)[0].trim();
+
+        // If item name is empty, try to extract from keywords
+        if (!itemName || itemName.length < 2) {
+          linenKeywords.forEach(keyword => {
+            if (lowerLine.includes(keyword)) {
+              itemName = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+            }
+          });
+        }
+
+        // Skip header rows
+        if (lowerLine.includes('opening balance') || lowerLine.includes('clean received') ||
+            lowerLine.includes('linen particulars') || lowerLine.includes('soil sent')) {
+          return;
+        }
+
+        // Skip if no item name found
+        if (!itemName || itemName.length < 2) return;
 
         const item = {
           sr_no: srNo++,
-          item: itemName || line.replace(/\d+/g, '').trim(),
-          opening_balance: numbers[0] || '0',
-          clean_received: numbers[1] || '0',
-          total: numbers[2] || '0',
-          soil_sent: numbers[3] || '0',
-          closing_balance: numbers[4] || '0',
-          remark: '',
+          item: itemName,
+          opening_balance: numbers[0] || '-',
+          clean_received: numbers[1] || '-',
+          total: numbers[2] || '-',
+          soil_sent: numbers[3] || '-',
+          closing_balance: numbers[4] || '-',
+          remark: numbers[5] ? numbers.slice(5).join(' ') : '',
         };
 
-        // Determine if it's uniform or linen
-        if (lowerLine.includes('uniform') || lowerLine.includes('chef') || lowerLine.includes('apron')) {
+        // Determine if it's uniform or linen based on section or keywords
+        const isUniform = inUniformSection || uniformKeywords.some(kw => lowerLine.includes(kw));
+
+        if (isUniform && !lowerLine.includes('bed') && !lowerLine.includes('towel') && !lowerLine.includes('mat')) {
           result.uniform_items.push(item);
         } else {
           result.linen_items.push(item);
@@ -177,18 +215,20 @@ export const ocrAPI = {
       });
 
       potentialItems.forEach((line, idx) => {
-        const numbers = line.match(/\d+/g) || [];
-        const textPart = line.replace(/\d+/g, '').trim();
+        // Remove leading serial number
+        const cleanedLine = line.replace(/^\s*\d{1,2}[\.\s]+/, '');
+        const numbers = cleanedLine.match(/\d+/g) || [];
+        const textPart = cleanedLine.replace(/\d+/g, '').trim();
 
         if (textPart.length > 2) {
           result.linen_items.push({
             sr_no: idx + 1,
             item: textPart,
-            opening_balance: numbers[0] || '0',
-            clean_received: numbers[1] || '0',
-            total: numbers[2] || '0',
-            soil_sent: numbers[3] || '0',
-            closing_balance: numbers[4] || '0',
+            opening_balance: numbers[0] || '-',
+            clean_received: numbers[1] || '-',
+            total: numbers[2] || '-',
+            soil_sent: numbers[3] || '-',
+            closing_balance: numbers[4] || '-',
             remark: '',
           });
         }
