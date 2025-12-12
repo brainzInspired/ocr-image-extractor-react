@@ -3,37 +3,123 @@ import { toast } from 'react-toastify';
 import { useApp } from '../context/AppContext';
 import { extractAPI, historyAPI, usageAPI } from '../services/api';
 
+// Image compression function - compresses to target size (default 900KB)
+const compressImage = (file, maxSizeKB = 900) => {
+  return new Promise((resolve, reject) => {
+    const maxSizeBytes = maxSizeKB * 1024;
+
+    // If file is already small enough, return it as-is
+    if (file.size <= maxSizeBytes) {
+      resolve(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        // Calculate scale factor based on file size ratio
+        const scaleFactor = Math.sqrt(maxSizeBytes / file.size);
+        width = Math.floor(width * scaleFactor);
+        height = Math.floor(height * scaleFactor);
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Start with quality 0.8 and reduce if needed
+        let quality = 0.8;
+
+        const tryCompress = () => {
+          canvas.toBlob(
+            (blob) => {
+              if (blob.size <= maxSizeBytes || quality <= 0.1) {
+                // Create a new File from the blob
+                const compressedFile = new File([blob], file.name, {
+                  type: 'image/jpeg',
+                  lastModified: Date.now(),
+                });
+                resolve(compressedFile);
+              } else {
+                // Reduce quality and try again
+                quality -= 0.1;
+                tryCompress();
+              }
+            },
+            'image/jpeg',
+            quality
+          );
+        };
+
+        tryCompress();
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+};
+
 const Upload = () => {
   const { hotels, usage, fetchUsage } = useApp();
   const [selectedHotel, setSelectedHotel] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [error, setError] = useState('');
   const [extractedData, setExtractedData] = useState(null);
   const [rawText, setRawText] = useState('');
   const [activeTab, setActiveTab] = useState('structured');
   const [isDragOver, setIsDragOver] = useState(false);
+  const [originalSize, setOriginalSize] = useState(null);
+  const [compressedSize, setCompressedSize] = useState(null);
   const fileInputRef = useRef(null);
 
   const selectedHotelData = hotels.find((h) => h.id === selectedHotel);
 
-  const handleFileSelect = (file) => {
+  const handleFileSelect = async (file) => {
     if (file) {
       const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/bmp', 'image/webp'];
       if (!validTypes.includes(file.type)) {
         toast.error('Invalid file type. Please upload an image.');
         return;
       }
-      // Check file size (OCR.space free tier has 1MB limit)
-      if (file.size > 1024 * 1024) {
-        toast.warning('File size exceeds 1MB. OCR may fail. Consider using a smaller image.');
-      }
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+
       setError('');
       setExtractedData(null);
       setRawText('');
+      setOriginalSize(file.size);
+
+      // Check if compression is needed (file > 900KB)
+      const maxSize = 900 * 1024; // 900KB
+      if (file.size > maxSize) {
+        setCompressing(true);
+        toast.info(`Compressing image from ${(file.size / 1024).toFixed(0)}KB...`);
+
+        try {
+          const compressedFile = await compressImage(file, 900);
+          setCompressedSize(compressedFile.size);
+          setSelectedFile(compressedFile);
+          setPreviewUrl(URL.createObjectURL(compressedFile));
+          toast.success(`Image compressed: ${(file.size / 1024).toFixed(0)}KB → ${(compressedFile.size / 1024).toFixed(0)}KB`);
+        } catch (err) {
+          toast.error('Failed to compress image. Please try a smaller image.');
+          setCompressing(false);
+          return;
+        }
+        setCompressing(false);
+      } else {
+        setSelectedFile(file);
+        setPreviewUrl(URL.createObjectURL(file));
+        setCompressedSize(null);
+      }
     }
   };
 
@@ -282,15 +368,28 @@ const Upload = () => {
 
             {/* Upload Area */}
             <div
-              className={`upload-area ${isDragOver ? 'dragover' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
+              className={`upload-area ${isDragOver ? 'dragover' : ''} ${compressing ? 'compressing' : ''}`}
+              onClick={() => !compressing && fileInputRef.current?.click()}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
             >
-              <div className="upload-icon">📄</div>
-              <p className="upload-text">Drag & Drop your image here</p>
-              <p className="upload-subtext">or click to browse (PNG, JPG, JPEG, BMP, WEBP - Max 1MB)</p>
+              {compressing ? (
+                <>
+                  <div className="upload-icon">⏳</div>
+                  <p className="upload-text">Compressing image...</p>
+                  <p className="upload-subtext">Please wait</p>
+                </>
+              ) : (
+                <>
+                  <div className="upload-icon">📄</div>
+                  <p className="upload-text">Drag & Drop your image here</p>
+                  <p className="upload-subtext">or click to browse (PNG, JPG, JPEG, BMP, WEBP)</p>
+                  <p className="upload-subtext" style={{ color: '#10b981', fontWeight: 500 }}>
+                    Auto-compresses to 900KB if larger
+                  </p>
+                </>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -303,6 +402,29 @@ const Upload = () => {
             {previewUrl && (
               <div className="preview-container">
                 <img src={previewUrl} alt="Preview" className="preview-image" />
+                {/* File size info */}
+                <div style={{
+                  marginTop: '10px',
+                  padding: '10px',
+                  background: compressedSize ? '#d1fae5' : '#f3f4f6',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  textAlign: 'center'
+                }}>
+                  {compressedSize ? (
+                    <span style={{ color: '#059669' }}>
+                      <strong>Compressed:</strong> {(originalSize / 1024).toFixed(0)}KB → {(compressedSize / 1024).toFixed(0)}KB
+                      <span style={{ marginLeft: '10px', color: '#10b981' }}>
+                        (saved {((1 - compressedSize / originalSize) * 100).toFixed(0)}%)
+                      </span>
+                    </span>
+                  ) : (
+                    <span style={{ color: '#6b7280' }}>
+                      <strong>File size:</strong> {(originalSize / 1024).toFixed(0)}KB
+                      {originalSize <= 900 * 1024 && <span style={{ color: '#10b981', marginLeft: '10px' }}>(No compression needed)</span>}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -310,9 +432,9 @@ const Upload = () => {
               <button
                 className="btn"
                 onClick={handleExtract}
-                disabled={!selectedHotel || !selectedFile || loading}
+                disabled={!selectedHotel || !selectedFile || loading || compressing}
               >
-                {loading ? 'Extracting with OCR...' : 'Extract Data with OCR'}
+                {compressing ? 'Compressing...' : loading ? 'Extracting with OCR...' : 'Extract Data with OCR'}
               </button>
             </div>
 
