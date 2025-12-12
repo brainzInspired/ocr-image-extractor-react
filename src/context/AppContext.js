@@ -20,11 +20,11 @@ export const AppProvider = ({ children }) => {
   const [hotels, setHotels] = useState([]);
   const [hotelsLoading, setHotelsLoading] = useState(false);
 
-  // Usage state
+  // Usage state - OCR.space Free API Limits
   const [usage, setUsage] = useState({
-    daily: { used: 0, limit: 1500 },
-    monthly: { used: 0, limit: 45000 },
-    yearly: { used: 0, limit: 547500 },
+    daily: { used: 0, limit: 500 },       // 500 requests per day
+    monthly: { used: 0, limit: 25000 },   // 25,000 requests per month
+    yearly: { used: 0, limit: 300000 },   // ~300,000 requests per year
     total: 0,
   });
 
@@ -72,15 +72,15 @@ export const AppProvider = ({ children }) => {
         setUsage({
           daily: {
             used: response.data.daily_count || 0,
-            limit: response.data.daily_limit || 1500,
+            limit: response.data.daily_limit || 500,
           },
           monthly: {
             used: response.data.monthly_count || 0,
-            limit: response.data.monthly_limit || 45000,
+            limit: response.data.monthly_limit || 25000,
           },
           yearly: {
             used: response.data.yearly_count || 0,
-            limit: response.data.yearly_limit || 547500,
+            limit: response.data.yearly_limit || 300000,
           },
           total: response.data.total_count || 0,
         });

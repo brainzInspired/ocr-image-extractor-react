@@ -181,10 +181,27 @@ export const authAPI = {
   },
 };
 
+// Default test hotel
+const DEFAULT_HOTELS = [
+  {
+    id: 'HTL-TEST-001',
+    name: 'Test Hotel - Demo',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    status: 'active',
+    extraction_count: 0,
+  }
+];
+
 // Hotels API (Local Storage)
 export const hotelsAPI = {
   getAll: async () => {
-    const hotels = getLocalData(STORAGE_KEYS.HOTELS, []);
+    let hotels = getLocalData(STORAGE_KEYS.HOTELS, []);
+    // If no hotels exist, add default test hotel
+    if (hotels.length === 0) {
+      hotels = DEFAULT_HOTELS;
+      saveLocalData(STORAGE_KEYS.HOTELS, hotels);
+    }
     return { data: { hotels } };
   },
   create: async (data) => {
@@ -493,31 +510,71 @@ export const attendanceAPI = {
   },
 };
 
+// OCR.space Free API Limits
+const OCR_LIMITS = {
+  daily: 500,      // 500 requests per day
+  monthly: 25000,  // 25,000 requests per month
+  yearly: 300000,  // ~300,000 requests per year
+};
+
 // Usage API (Local Storage)
 export const usageAPI = {
   getStats: async () => {
-    const usage = getLocalData(STORAGE_KEYS.USAGE, {
+    let usage = getLocalData(STORAGE_KEYS.USAGE, {
       daily_count: 0,
       monthly_count: 0,
       yearly_count: 0,
       total_count: 0,
-      daily_limit: 1500,
-      monthly_limit: 45000,
-      yearly_limit: 547500,
-      last_reset: new Date().toISOString(),
+      daily_limit: OCR_LIMITS.daily,
+      monthly_limit: OCR_LIMITS.monthly,
+      yearly_limit: OCR_LIMITS.yearly,
+      last_daily_reset: new Date().toISOString(),
+      last_monthly_reset: new Date().toISOString(),
+      last_yearly_reset: new Date().toISOString(),
     });
+
+    // Check and reset daily counter
+    const now = new Date();
+    const lastDailyReset = new Date(usage.last_daily_reset);
+    if (now.toDateString() !== lastDailyReset.toDateString()) {
+      usage.daily_count = 0;
+      usage.last_daily_reset = now.toISOString();
+    }
+
+    // Check and reset monthly counter
+    const lastMonthlyReset = new Date(usage.last_monthly_reset);
+    if (now.getMonth() !== lastMonthlyReset.getMonth() || now.getFullYear() !== lastMonthlyReset.getFullYear()) {
+      usage.monthly_count = 0;
+      usage.last_monthly_reset = now.toISOString();
+    }
+
+    // Check and reset yearly counter
+    const lastYearlyReset = new Date(usage.last_yearly_reset);
+    if (now.getFullYear() !== lastYearlyReset.getFullYear()) {
+      usage.yearly_count = 0;
+      usage.last_yearly_reset = now.toISOString();
+    }
+
+    // Update limits to current OCR.space limits
+    usage.daily_limit = OCR_LIMITS.daily;
+    usage.monthly_limit = OCR_LIMITS.monthly;
+    usage.yearly_limit = OCR_LIMITS.yearly;
+
+    saveLocalData(STORAGE_KEYS.USAGE, usage);
     return { data: usage };
   },
   increment: async () => {
-    const usage = getLocalData(STORAGE_KEYS.USAGE, {
+    let usage = getLocalData(STORAGE_KEYS.USAGE, {
       daily_count: 0,
       monthly_count: 0,
       yearly_count: 0,
       total_count: 0,
-      daily_limit: 1500,
-      monthly_limit: 45000,
-      yearly_limit: 547500,
-      last_reset: new Date().toISOString(),
+      daily_limit: OCR_LIMITS.daily,
+      monthly_limit: OCR_LIMITS.monthly,
+      yearly_limit: OCR_LIMITS.yearly,
+      last_daily_reset: new Date().toISOString(),
+      last_monthly_reset: new Date().toISOString(),
+      last_yearly_reset: new Date().toISOString(),
     });
 
     usage.daily_count++;
@@ -534,10 +591,12 @@ export const usageAPI = {
       monthly_count: 0,
       yearly_count: 0,
       total_count: 0,
-      daily_limit: 1500,
-      monthly_limit: 45000,
-      yearly_limit: 547500,
-      last_reset: new Date().toISOString(),
+      daily_limit: OCR_LIMITS.daily,
+      monthly_limit: OCR_LIMITS.monthly,
+      yearly_limit: OCR_LIMITS.yearly,
+      last_daily_reset: new Date().toISOString(),
+      last_monthly_reset: new Date().toISOString(),
+      last_yearly_reset: new Date().toISOString(),
     };
     saveLocalData(STORAGE_KEYS.USAGE, usage);
     return { data: usage };
