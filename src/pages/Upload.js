@@ -180,7 +180,7 @@ const Upload = () => {
           raw_text: response.data.raw_text,
         });
 
-        toast.success('Data extracted successfully using OCR.space!');
+        toast.success('Data extracted successfully using Google Cloud Vision!');
       } else {
         setError(response.data.error || 'Extraction failed');
         toast.error('Extraction failed');
@@ -255,7 +255,7 @@ const Upload = () => {
     <div className="container">
       {/* Usage Dashboard */}
       <div className="usage-dashboard">
-        <h3 className="usage-title">API Usage Dashboard (OCR.space)</h3>
+        <h3 className="usage-title">API Usage Dashboard (Google Cloud Vision)</h3>
         <div className="usage-grid">
           <div className="usage-card">
             <div className="usage-card-header">
@@ -388,7 +388,7 @@ const Upload = () => {
                   <p className="upload-text">Drag & Drop your image here</p>
                   <p className="upload-subtext">or click to browse (PNG, JPG, JPEG, BMP, WEBP)</p>
                   <p className="upload-subtext" style={{ color: '#10b981', fontWeight: 500 }}>
-                    Auto-compresses to 999KB if larger (OCR.space limit: 1MB)
+                    Auto-compresses large images for faster processing
                   </p>
                 </>
               )}
@@ -456,8 +456,8 @@ const Upload = () => {
                 <li>Download CSV with your changes</li>
               </ol>
               <div style={{ marginTop: '15px', padding: '10px', background: '#dbeafe', borderRadius: '8px', fontSize: '0.85rem', color: '#1e40af' }}>
-                <strong>Powered by OCR.space API</strong><br/>
-                Free tier: 25,000 requests/month
+                <strong>Powered by Google Cloud Vision API</strong><br/>
+                Free tier: 1,000 requests/month (Excellent handwriting support)
               </div>
             </div>
           </div>
@@ -468,7 +468,7 @@ const Upload = () => {
       {loading && (
         <div className="loading">
           <div className="spinner"></div>
-          <p style={{ color: '#374151', fontWeight: 500 }}>Extracting text with OCR.space...</p>
+          <p style={{ color: '#374151', fontWeight: 500 }}>Extracting text with Google Cloud Vision...</p>
           <p style={{ color: '#6b7280', fontSize: '0.85rem', marginTop: '5px' }}>This may take a few seconds</p>
         </div>
       )}
@@ -725,7 +725,7 @@ const Upload = () => {
             <div className="tab-content active">
               <h3 className="card-title">Raw OCR Text</h3>
               <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '15px' }}>
-                This is the raw text extracted from the image by OCR.space
+                This is the raw text extracted from the image by Google Cloud Vision
               </p>
               <pre className="json-output" style={{ whiteSpace: 'pre-wrap', color: '#e5e7eb' }}>
                 {rawText || 'No text extracted'}

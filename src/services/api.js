@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-// OCR.space API Key
-const OCR_API_KEY = 'K85045290988957';
-const OCR_API_URL = 'https://api.ocr.space/parse/image';
+// Google Cloud Vision API Key
+const GOOGLE_VISION_API_KEY = 'AIzaSyCmhuyJvx2yQZUvS9c7qAnFn_L6tr1vJWY';
+const GOOGLE_VISION_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
 
 // Local Storage Keys
 const STORAGE_KEYS = {
@@ -33,22 +33,53 @@ const generateId = (prefix = 'ID') => {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
 };
 
-// OCR API - Extract text from image using OCR.space
+// Convert file to base64
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      // Remove data URL prefix (e.g., "data:image/jpeg;base64,")
+      const base64 = reader.result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
+// OCR API - Extract text from image using Google Cloud Vision API
 export const ocrAPI = {
   extractText: async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('apikey', OCR_API_KEY);
-    formData.append('language', 'eng');
-    formData.append('isOverlayRequired', 'true');      // Get word positions for better parsing
-    formData.append('detectOrientation', 'true');      // Auto-rotate if needed
-    formData.append('scale', 'true');                  // Scale image for better OCR
-    formData.append('isTable', 'true');                // Enable table recognition
-    formData.append('OCREngine', '2');                 // Engine 2 is better for handwriting
+    // Convert file to base64
+    const base64Image = await fileToBase64(file);
 
-    const response = await axios.post(OCR_API_URL, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    // Prepare request for Google Cloud Vision API
+    const requestBody = {
+      requests: [
+        {
+          image: {
+            content: base64Image,
+          },
+          features: [
+            {
+              type: 'DOCUMENT_TEXT_DETECTION', // Best for handwriting and documents
+              maxResults: 1,
+            },
+          ],
+          imageContext: {
+            languageHints: ['en'], // English language hint
+          },
+        },
+      ],
+    };
+
+    const response = await axios.post(
+      `${GOOGLE_VISION_API_URL}?key=${GOOGLE_VISION_API_KEY}`,
+      requestBody,
+      {
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
 
     return response.data;
   },
@@ -314,14 +345,30 @@ export const extractAPI = {
   extract: async (formData) => {
     const file = formData.get('file');
 
-    // Call OCR.space API
+    // Call Google Cloud Vision API
     const ocrResponse = await ocrAPI.extractText(file);
 
-    if (ocrResponse.OCRExitCode !== 1) {
-      throw new Error(ocrResponse.ErrorMessage || 'OCR failed');
+    // Check for errors in Google Vision response
+    if (ocrResponse.error) {
+      throw new Error(ocrResponse.error.message || 'OCR failed');
     }
 
-    const extractedText = ocrResponse.ParsedResults?.[0]?.ParsedText || '';
+    // Extract text from Google Vision response
+    const responses = ocrResponse.responses || [];
+    const firstResponse = responses[0] || {};
+
+    // Check for error in first response
+    if (firstResponse.error) {
+      throw new Error(firstResponse.error.message || 'OCR failed');
+    }
+
+    // Get full text annotation (best for documents/handwriting)
+    const fullTextAnnotation = firstResponse.fullTextAnnotation;
+    const extractedText = fullTextAnnotation?.text || '';
+
+    if (!extractedText) {
+      throw new Error('No text detected in image. Please try with a clearer image.');
+    }
 
     // Parse the OCR text into structured data
     const parsedData = ocrAPI.parseLinenData(extractedText);
@@ -511,11 +558,11 @@ export const attendanceAPI = {
   },
 };
 
-// OCR.space Free API Limits
+// Google Cloud Vision API Free Limits
 const OCR_LIMITS = {
-  daily: 500,      // 500 requests per day
-  monthly: 25000,  // 25,000 requests per month
-  yearly: 300000,  // ~300,000 requests per year
+  daily: 100,      // ~100 requests per day (to stay within 1000/month)
+  monthly: 1000,   // 1,000 requests per month FREE
+  yearly: 12000,   // ~12,000 requests per year
 };
 
 // Usage API (Local Storage)

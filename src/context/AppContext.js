@@ -20,11 +20,11 @@ export const AppProvider = ({ children }) => {
   const [hotels, setHotels] = useState([]);
   const [hotelsLoading, setHotelsLoading] = useState(false);
 
-  // Usage state - OCR.space Free API Limits
+  // Usage state - Google Cloud Vision API Free Limits
   const [usage, setUsage] = useState({
-    daily: { used: 0, limit: 500 },       // 500 requests per day
-    monthly: { used: 0, limit: 25000 },   // 25,000 requests per month
-    yearly: { used: 0, limit: 300000 },   // ~300,000 requests per year
+    daily: { used: 0, limit: 100 },       // ~100 requests per day
+    monthly: { used: 0, limit: 1000 },    // 1,000 requests per month FREE
+    yearly: { used: 0, limit: 12000 },    // ~12,000 requests per year
     total: 0,
   });
 
@@ -72,15 +72,15 @@ export const AppProvider = ({ children }) => {
         setUsage({
           daily: {
             used: response.data.daily_count || 0,
-            limit: response.data.daily_limit || 500,
+            limit: response.data.daily_limit || 100,
           },
           monthly: {
             used: response.data.monthly_count || 0,
-            limit: response.data.monthly_limit || 25000,
+            limit: response.data.monthly_limit || 1000,
           },
           yearly: {
             used: response.data.yearly_count || 0,
-            limit: response.data.yearly_limit || 300000,
+            limit: response.data.yearly_limit || 12000,
           },
           total: response.data.total_count || 0,
         });
