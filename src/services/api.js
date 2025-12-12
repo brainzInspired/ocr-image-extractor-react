@@ -84,7 +84,7 @@ export const ocrAPI = {
     return response.data;
   },
 
-  // Parse OCR text into structured linen data
+  // Parse OCR text into structured data - works with ANY image/table
   parseLinenData: (ocrText) => {
     const lines = ocrText.split('\n').filter(line => line.trim());
     const result = {
@@ -99,44 +99,53 @@ export const ocrAPI = {
       uniform_items: [],
     };
 
-    // Try to extract header information
-    lines.forEach(line => {
+    // Try to extract header information from first few lines
+    const headerLines = lines.slice(0, 15);
+    headerLines.forEach(line => {
       const lowerLine = line.toLowerCase();
-      if (lowerLine.includes('date') || lowerLine.includes('dt')) {
-        const dateMatch = line.match(/(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/);
-        if (dateMatch) result.header.date = dateMatch[1];
+
+      // Extract date
+      const dateMatch = line.match(/(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})/);
+      if (dateMatch && !result.header.date.includes('/')) {
+        result.header.date = dateMatch[1];
       }
-      if (lowerLine.includes('company') || lowerLine.includes('hotel') || lowerLine.includes('amritara') || lowerLine.includes('aura')) {
-        result.header.company = line.trim();
+
+      // Extract company name (usually in first few lines, longer text)
+      if (!result.header.company && line.length > 5 && /^[A-Z]/.test(line) && !/^\d/.test(line)) {
+        if (!lowerLine.includes('date') && !lowerLine.includes('time') &&
+            !lowerLine.includes('sr.') && !lowerLine.includes('contractor')) {
+          result.header.company = line.trim();
+        }
       }
-      if (lowerLine.includes('contractor') || lowerLine.includes('vendor')) {
-        result.header.contractor_name = line.split(':').pop()?.trim() || '';
+
+      // Extract contractor
+      if (lowerLine.includes('contractor')) {
+        const parts = line.split(/[:;]/);
+        if (parts.length > 1) {
+          result.header.contractor_name = parts.slice(1).join('').trim();
+        }
       }
-      if (lowerLine.includes('contact') || lowerLine.includes('phone') || lowerLine.includes('mobile')) {
-        const phoneMatch = line.match(/(\d{10,})/);
-        if (phoneMatch) result.header.contact_no = phoneMatch[1];
-      }
-      if (lowerLine.includes('sr. no') || lowerLine.includes('sr.no') || lowerLine.includes('sr no')) {
-        const srMatch = line.match(/(\d+)/);
+
+      // Extract contact
+      const phoneMatch = line.match(/(\d{10,})/);
+      if (phoneMatch) result.header.contact_no = phoneMatch[1];
+
+      // Extract SR No
+      if (lowerLine.includes('sr') && lowerLine.includes('no')) {
+        const srMatch = line.match(/(\d{3,})/);
         if (srMatch) result.header.sr_no = srMatch[1];
       }
     });
 
-    // Common linen items to look for
-    const linenKeywords = [
-      'bed sheet', 'bedsheet', 'pillow', 'towel', 'bath towel', 'hand towel',
-      'face towel', 'blanket', 'duvet', 'mattress', 'curtain', 'napkin',
-      'table cloth', 'bath mat', 'bed cover', 'quilt', 'comforter',
-      'pillow cover', 'cushion', 'runner', 'apron', 'chef coat', 'uniform',
-      'dry mop', 'pool towel', 'bath robe', 'spa towel', 'floor mat',
-      'bed runner', 'duvet cover', 't-shirt', 'shirt', 'pant', 'coat', 'sweater',
-      'dbl', 'sgl', 'cousin cover', 'frill', 'chain cover', 's. pool'
-    ];
-
-    // Uniform keywords
+    // Uniform keywords to separate sections
     const uniformKeywords = ['uniform', 'chef coat', 'apron', 't-shirt', 'shirt', 'pant', 'coat', 'sweater'];
 
-    // Try to parse table data
+    // Header keywords to skip
+    const skipKeywords = ['opening balance', 'clean received', 'linen particulars',
+                         'soil sent', 'closing balance', 'total', 'remark', 'sr.', 'sr no',
+                         'particulars', 'balance', 'received'];
+
+    // Parse ALL lines that look like table rows
     let srNo = 1;
     let inUniformSection = false;
 
@@ -144,45 +153,40 @@ export const ocrAPI = {
       const lowerLine = line.toLowerCase();
 
       // Check if we're entering uniform section
-      if (lowerLine.includes('uniform') && !lowerLine.includes('opening') && line.length < 20) {
+      if (lowerLine === 'uniform' || (lowerLine.includes('uniform') && line.length < 15)) {
         inUniformSection = true;
         return;
       }
 
-      // Check if line contains any linen/uniform item
-      const hasLinenItem = linenKeywords.some(keyword => lowerLine.includes(keyword));
+      // Skip header/title rows
+      const isHeader = skipKeywords.some(kw => lowerLine.includes(kw));
+      if (isHeader) return;
 
-      // Also check if line starts with a number followed by text (table row pattern)
-      const isTableRow = /^\s*\d{1,2}[\.\s]/.test(line) && /[a-zA-Z]{3,}/.test(line);
+      // Skip very short lines or lines without any letters
+      if (line.length < 3 || !/[a-zA-Z]/.test(line)) return;
 
-      if (hasLinenItem || isTableRow) {
-        // Remove leading serial number (e.g., "1.", "2.", "1 ", "2 ")
-        let cleanedLine = line.replace(/^\s*\d{1,2}[\.\s]+/, '');
+      // Check if line has numbers (potential data row)
+      const hasNumbers = /\d/.test(line);
+      const hasText = /[a-zA-Z]{2,}/.test(line);
 
-        // Extract all numbers from the cleaned line (after removing sr no)
+      // Line looks like a table row if it has both text and numbers
+      if (hasText && hasNumbers) {
+        // Remove leading serial number (e.g., "1.", "2.", "1 ", "2 ", "1)", "2)")
+        let cleanedLine = line.replace(/^\s*\d{1,2}[\.\)\s]+/, '').trim();
+
+        // Extract all numbers from the line
         const numbers = cleanedLine.match(/\d+/g) || [];
 
-        // Extract item name - get text before the first number
-        let itemName = cleanedLine.split(/\d/)[0].trim();
+        // Extract item name - text before first number or all text
+        let itemName = cleanedLine.split(/\s+\d/)[0].trim();
 
-        // If item name is empty, try to extract from keywords
-        if (!itemName || itemName.length < 2) {
-          linenKeywords.forEach(keyword => {
-            if (lowerLine.includes(keyword)) {
-              itemName = keyword.charAt(0).toUpperCase() + keyword.slice(1);
-            }
-          });
-        }
+        // If item name still has numbers at start, clean it
+        itemName = itemName.replace(/^\d+\s*/, '').trim();
 
-        // Skip header rows
-        if (lowerLine.includes('opening balance') || lowerLine.includes('clean received') ||
-            lowerLine.includes('linen particulars') || lowerLine.includes('soil sent')) {
-          return;
-        }
+        // Skip if item name is too short or looks like a number
+        if (!itemName || itemName.length < 2 || /^\d+$/.test(itemName)) return;
 
-        // Skip if no item name found
-        if (!itemName || itemName.length < 2) return;
-
+        // Create item with extracted numbers
         const item = {
           sr_no: srNo++,
           item: itemName,
@@ -191,49 +195,19 @@ export const ocrAPI = {
           total: numbers[2] || '-',
           soil_sent: numbers[3] || '-',
           closing_balance: numbers[4] || '-',
-          remark: numbers[5] ? numbers.slice(5).join(' ') : '',
+          remark: '',
         };
 
-        // Determine if it's uniform or linen based on section or keywords
+        // Determine if it's uniform or linen
         const isUniform = inUniformSection || uniformKeywords.some(kw => lowerLine.includes(kw));
 
-        if (isUniform && !lowerLine.includes('bed') && !lowerLine.includes('towel') && !lowerLine.includes('mat')) {
+        if (isUniform) {
           result.uniform_items.push(item);
         } else {
           result.linen_items.push(item);
         }
       }
     });
-
-    // If no items found, create sample structure from raw text
-    if (result.linen_items.length === 0 && result.uniform_items.length === 0) {
-      // Split text into potential rows and create items
-      const potentialItems = lines.filter(line => {
-        const hasNumbers = /\d/.test(line);
-        const hasText = /[a-zA-Z]{3,}/.test(line);
-        return hasNumbers && hasText && line.length > 5;
-      });
-
-      potentialItems.forEach((line, idx) => {
-        // Remove leading serial number
-        const cleanedLine = line.replace(/^\s*\d{1,2}[\.\s]+/, '');
-        const numbers = cleanedLine.match(/\d+/g) || [];
-        const textPart = cleanedLine.replace(/\d+/g, '').trim();
-
-        if (textPart.length > 2) {
-          result.linen_items.push({
-            sr_no: idx + 1,
-            item: textPart,
-            opening_balance: numbers[0] || '-',
-            clean_received: numbers[1] || '-',
-            total: numbers[2] || '-',
-            soil_sent: numbers[3] || '-',
-            closing_balance: numbers[4] || '-',
-            remark: '',
-          });
-        }
-      });
-    }
 
     return result;
   },
