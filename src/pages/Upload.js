@@ -3,13 +3,14 @@ import { toast } from 'react-toastify';
 import { useApp } from '../context/AppContext';
 import { extractAPI, historyAPI, usageAPI } from '../services/api';
 
-// Image compression function - compresses to target size (default 900KB)
-const compressImage = (file, maxSizeKB = 900) => {
+// Image compression function - compresses to target size (999KB)
+// If image is below 999KB, keep it as-is. If above, compress to 999KB.
+const compressImage = (file, targetSizeKB = 999) => {
   return new Promise((resolve, reject) => {
-    const maxSizeBytes = maxSizeKB * 1024;
+    const targetSizeBytes = targetSizeKB * 1024; // 999KB = 1,022,976 bytes
 
-    // If file is already small enough, return it as-is
-    if (file.size <= maxSizeBytes) {
+    // If file is already at or below target size, return it as-is
+    if (file.size <= targetSizeBytes) {
       resolve(file);
       return;
     }
@@ -21,8 +22,8 @@ const compressImage = (file, maxSizeKB = 900) => {
         const canvas = document.createElement('canvas');
         let { width, height } = img;
 
-        // Calculate scale factor based on file size ratio
-        const scaleFactor = Math.sqrt(maxSizeBytes / file.size);
+        // Calculate initial scale factor based on file size ratio
+        const scaleFactor = Math.sqrt(targetSizeBytes / file.size) * 0.95;
         width = Math.floor(width * scaleFactor);
         height = Math.floor(height * scaleFactor);
 
@@ -32,13 +33,13 @@ const compressImage = (file, maxSizeKB = 900) => {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Start with quality 0.8 and reduce if needed
-        let quality = 0.8;
+        // Start with high quality and reduce if needed
+        let quality = 0.92;
 
         const tryCompress = () => {
           canvas.toBlob(
             (blob) => {
-              if (blob.size <= maxSizeBytes || quality <= 0.1) {
+              if (blob.size <= targetSizeBytes || quality <= 0.1) {
                 // Create a new File from the blob
                 const compressedFile = new File([blob], file.name, {
                   type: 'image/jpeg',
@@ -47,7 +48,7 @@ const compressImage = (file, maxSizeKB = 900) => {
                 resolve(compressedFile);
               } else {
                 // Reduce quality and try again
-                quality -= 0.1;
+                quality -= 0.05;
                 tryCompress();
               }
             },
@@ -97,14 +98,14 @@ const Upload = () => {
       setRawText('');
       setOriginalSize(file.size);
 
-      // Check if compression is needed (file > 900KB)
-      const maxSize = 900 * 1024; // 900KB
+      // Check if compression is needed (file > 999KB)
+      const maxSize = 999 * 1024; // 999KB
       if (file.size > maxSize) {
         setCompressing(true);
-        toast.info(`Compressing image from ${(file.size / 1024).toFixed(0)}KB...`);
+        toast.info(`Compressing image from ${(file.size / 1024).toFixed(0)}KB to under 999KB...`);
 
         try {
-          const compressedFile = await compressImage(file, 900);
+          const compressedFile = await compressImage(file, 999);
           setCompressedSize(compressedFile.size);
           setSelectedFile(compressedFile);
           setPreviewUrl(URL.createObjectURL(compressedFile));
@@ -116,6 +117,7 @@ const Upload = () => {
         }
         setCompressing(false);
       } else {
+        // File is already under 999KB, use as-is
         setSelectedFile(file);
         setPreviewUrl(URL.createObjectURL(file));
         setCompressedSize(null);
@@ -386,7 +388,7 @@ const Upload = () => {
                   <p className="upload-text">Drag & Drop your image here</p>
                   <p className="upload-subtext">or click to browse (PNG, JPG, JPEG, BMP, WEBP)</p>
                   <p className="upload-subtext" style={{ color: '#10b981', fontWeight: 500 }}>
-                    Auto-compresses to 900KB if larger
+                    Auto-compresses to 999KB if larger (OCR.space limit: 1MB)
                   </p>
                 </>
               )}
@@ -421,7 +423,7 @@ const Upload = () => {
                   ) : (
                     <span style={{ color: '#6b7280' }}>
                       <strong>File size:</strong> {(originalSize / 1024).toFixed(0)}KB
-                      {originalSize <= 900 * 1024 && <span style={{ color: '#10b981', marginLeft: '10px' }}>(No compression needed)</span>}
+                      {originalSize <= 999 * 1024 && <span style={{ color: '#10b981', marginLeft: '10px' }}>(No compression needed)</span>}
                     </span>
                   )}
                 </div>
